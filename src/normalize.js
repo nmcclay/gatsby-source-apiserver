@@ -3,7 +3,7 @@ const deepMapKeys = require(`deep-map-keys`)
 const nanoid = require(`nanoid`)
 const chalk = require('chalk')
 const log = console.log
-const { digest } = require('./helpers')
+const { digest, objectRef } = require('./helpers')
 
 // Prefix to use if there is a conflict with key name
 const conflictFieldPrefix = `alternative_`
@@ -12,13 +12,16 @@ const conflictFieldPrefix = `alternative_`
 const restrictedNodeFields = [`id`, `children`, `parent`, `fields`, `internal`]
 
 // Create nodes from entities
-exports.createNodesFromEntities = ({entities, entityType, schemaType, devRefresh, enableRefreshEndpoint, refreshId, createNode, createNodeId, reporter}) => {
-
+exports.createNodesFromEntities = ({response, entityLevel, entityType, schemaType, createNodeFields, devRefresh, enableRefreshEndpoint, refreshId, createNode, createNodeField, createNodeId, reporter}) => {
+  let entities = response;
+  // Interpolate entities from nested response
+  if (entityLevel) entities = objectRef(entities, entityLevel);
+  // If entities is a single object, add to array to prevent issues with creating nodes
+  if (entities && !Array.isArray(entities)) entities = [entities];
   // Standardize and clean keys
-  entities = standardizeKeys(entities)
-
+  entities = standardizeKeys(entities);
   // Add entity type to each entity
-  entities = createEntityType(entityType, entities)
+  entities = createEntityType(entityType, entities);
 
   const dummyEntity = {
     id: 'dummy',
@@ -66,27 +69,34 @@ exports.createNodesFromEntities = ({entities, entityType, schemaType, devRefresh
         contentDigest: digest(JSON.stringify(entity))
       }
     };
-    // console.log(`node: `, node);
+
     createNode(node);
+    createNodeFields.forEach(field => {
+      createNodeField({
+        node,
+        name: field.name,
+        value: field.value(node, response)
+      });
+    });
   })
 }
 
 // If entry is not set by user, provide an empty value of the same type
-const setBlankValue = (shemaValue, fieldValue) => {
-  if (typeof shemaValue === 'string') {
+const setBlankValue = (schemaValue, fieldValue) => {
+  if (typeof schemaValue === 'string') {
     return typeof fieldValue === `undefined` || fieldValue === null ? '' : fieldValue
-  } else if (typeof shemaValue === 'number') {
+  } else if (typeof schemaValue === 'number') {
     return typeof fieldValue === `undefined` || fieldValue === null ? NaN : fieldValue
-  } else if (typeof shemaValue === 'object' && !Array.isArray(shemaValue)) {
+  } else if (typeof schemaValue === 'object' && !Array.isArray(schemaValue)) {
     const obj = typeof fieldValue === `undefined` || fieldValue === null ? {} : fieldValue
-    Object.keys(shemaValue).forEach(itemName => {
-      obj[itemName] = setBlankValue(shemaValue[itemName])
+    Object.keys(schemaValue).forEach(itemName => {
+      obj[itemName] = setBlankValue(schemaValue[itemName])
     })
     return obj
-  } else if (typeof shemaValue === 'object' && Array.isArray(shemaValue)) {
+  } else if (typeof schemaValue === 'object' && Array.isArray(schemaValue)) {
     // TODO: Need to fix it
-    return [setBlankValue(shemaValue[0])]
-  } else if (typeof shemaValue === 'boolean') {
+    return [setBlankValue(schemaValue[0])]
+  } else if (typeof schemaValue === 'boolean') {
     return typeof fieldValue === `undefined` || fieldValue === null ? false : fieldValue
   } else {
     return fieldValue

@@ -3,7 +3,6 @@ require('babel-polyfill')
 const axios = require('axios')
 const fetch = require(`./fetch`)
 const normalize = require(`./normalize`)
-const objectRef = require(`./helpers`).objectRef
 const forEachAsync = require('./helpers').forEachAsync
 
 // const typePrefix = `thirdParty__`
@@ -28,6 +27,7 @@ exports.sourceNodes = async ({
   name,
   entityLevel,
   schemaType,
+  createNodeFields = [{}],
   entitiesArray = [{}],
   params = {},
   verboseOutput = false,
@@ -39,7 +39,7 @@ exports.sourceNodes = async ({
   const cache = getCache('gatsby-source-apiserver')
   //store the attributes in an object to avoid naming conflicts
   const attributes = {typePrefix, url, method, headers, data, localSave, skipCreateNode, path, auth, params, payloadKey, name, entityLevel, schemaType, enableDevRefresh, refreshId}
-  const { createNode } = actions;
+  const { createNode, createNodeField } = actions;
 
   // If true, output some info as the plugin runs
   let verbose = verboseOutput
@@ -61,9 +61,7 @@ exports.sourceNodes = async ({
   }
 
   await forEachAsync(entitiesArray, async (entity) => {
-
     // default to the general properties for any props not provided
-
     const typePrefix = entity.typePrefix ? entity.typePrefix : attributes.typePrefix
     const url = entity.url ? entity.url : attributes.url
     const method = entity.method ? entity.method : attributes.method
@@ -85,47 +83,33 @@ exports.sourceNodes = async ({
     if (authorization) headers.Authorization = authorization
     // Create an entity type from prefix and name supplied by user
     let entityType = `${typePrefix}${name}`
-    // console.log(`entityType: ${entityType}`);
 
     // Determine whether to refresh data when running `gatsby develop`
     const devRefresh = process.env.NODE_ENV === 'development' && enableDevRefresh
     const enableRefreshEndpoint = process.env.ENABLE_GATSBY_REFRESH_ENDPOINT
 
-
     // Fetch the data
-    let entities = await fetch({url, method, headers, data, name, localSave, path, payloadKey, auth, params, verbose, reporter, cache, shouldCache: allowCache, maxCacheDurationSeconds, calculateNextPage})
-
-    // Interpolate entities from nested response
-    if (entityLevel) {
-      entities = objectRef(entities, entityLevel)
-    }
-
-    // If entities is a single object, add to array to prevent issues with creating nodes
-    if(entities && !Array.isArray(entities)) {
-      entities = [entities]
-    }
-
-    // console.log(`save: `, localSave);
-    // console.log(`entities: `, entities.data);
+    const response = await fetch({url, method, headers, data, name, localSave, path, payloadKey, auth, params, verbose, reporter, cache, shouldCache: allowCache, maxCacheDurationSeconds, calculateNextPage})
 
     // Skip node creation if the goal is to only download the data to json files
-    if(skipCreateNode) {
-      return
-    }
+    if (skipCreateNode) return;
 
     // Generate the nodes
     normalize.createNodesFromEntities({
-        entities,
-        entityType,
-        schemaType,
-        devRefresh,
-        enableRefreshEndpoint,
-        refreshId,
-        createNode,
-        createNodeId,
-        reporter})
-
+      response,
+      entityLevel,
+      entityType,
+      schemaType,
+      createNodeFields,
+      devRefresh,
+      enableRefreshEndpoint,
+      refreshId,
+      createNode,
+      createNodeField,
+      createNodeId,
+      reporter
     })
+  })
 
   // We're done, return.
   return
